@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba de impresión ZPL — Zebra ZQ510</title>
+<meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Share+Tech&display=swap">
+<style>
+  :root{
+    --bg:#000119;--panel:#001335;--cyan:#19bce8;--ink:#eef7fc;--muted:#7f9ac0;
+    --line:rgba(25,188,232,0.22);--ok:#3ddc97;--err:#ff6b6b;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg);color:var(--ink);font-family:'Poppins',system-ui,sans-serif;margin:0;padding:28px 20px 60px;}
+  .wrap{max-width:720px;margin:0 auto;}
+  h1{font-size:1.5rem;margin:0 0 6px;}
+  .eyebrow{font-family:'Share Tech',monospace;letter-spacing:.14em;text-transform:uppercase;font-size:.72rem;color:var(--cyan);}
+  p.lead{color:var(--muted);margin:6px 0 24px;line-height:1.6;font-size:.95rem;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:20px;margin-bottom:18px;}
+  label{display:block;font-size:.8rem;color:var(--muted);margin:12px 0 4px;}
+  input,textarea{
+    width:100%;background:#00091f;color:var(--ink);border:1px solid var(--line);
+    border-radius:4px;padding:10px 12px;font:inherit;font-size:.95rem;
+  }
+  textarea{font-family:'Share Tech',monospace;min-height:190px;resize:vertical;font-size:.85rem;}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media (max-width:520px){.row{grid-template-columns:1fr;}}
+  .btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;}
+  button{
+    font:inherit;font-weight:700;font-size:.82rem;letter-spacing:.03em;text-transform:uppercase;
+    padding:12px 22px;border-radius:999px;border:1px solid var(--cyan);
+    background:var(--cyan);color:#00121e;cursor:pointer;
+  }
+  button.ghost{background:transparent;color:var(--ink);border-color:var(--line);}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  #status{font-family:'Share Tech',monospace;font-size:.85rem;margin-top:14px;min-height:1.4em;white-space:pre-wrap;}
+  #status.ok{color:var(--ok);} #status.err{color:var(--err);}
+  small{color:var(--muted);line-height:1.5;display:block;margin-top:10px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Prueba interna</div>
+  <h1>Impresión ZPL desde el navegador</h1>
+  <p class="lead">Envía una etiqueta ZPL a una Zebra ZQ510 mediante Zebra Browser Print, instalado en este PC.</p>
+
+  <div class="card">
+    <div class="row">
+      <div><label for="nombre">Nombre</label><input id="nombre" value="Nombre Apellido"></div>
+      <div><label for="empresa">Empresa</label><input id="empresa" value="Empresa S.A.S."></div>
+    </div>
+    <label for="zpl">ZPL (se regenera al cambiar los campos; puede editarlo)</label>
+    <textarea id="zpl" spellcheck="false"></textarea>
+    <div class="btns">
+      <button id="btn-print">Imprimir</button>
+      <button id="btn-find" class="ghost">Buscar impresoras</button>
+      <button id="btn-copy" class="ghost">Copiar ZPL</button>
+    </div>
+    <div id="status"></div>
+    <small>Impresora: <span id="printer-name">sin detectar</span></small>
+  </div>
+
+  <div class="card">
+    <strong>Antes de probar</strong>
+    <small>1. Instale y abra Zebra Browser Print en este PC y empareje o conecte la ZQ510 (Bluetooth, USB o red).<br>
+    2. Abra esta página desde <code>http://localhost</code> o desde una dirección <code>https://</code>; evite abrirla como archivo (<code>file://</code>).<br>
+    3. La primera vez, abra <code>https://localhost:9101/ssl_support</code> y acepte el certificado.</small>
+  </div>
+</div>
+
+<script>
+(function(){
+  var BASES = ['https://localhost:9101', 'http://localhost:9100'];
+  var base = null, device = null;
+  var $ = function(id){ return document.getElementById(id); };
+
+  function clean(s){ return String(s||'').replace(/[\^~\\]/g,' ').trim(); }
+
+  // Etiqueta de ~3" (576 dots a 203 dpi), UTF-8.
+  function buildZpl(){
+    return [
+      '^XA','^CI28','^PW576','^LL400','^LH0,0',
+      '^FO20,20^GB536,4,4^FS',
+      '^FO20,50^A0N,60,60^FB536,2,0,C,0^FD' + clean($('nombre').value) + '^FS',
+      '^FO20,190^A0N,36,36^FB536,2,0,C,0^FD' + clean($('empresa').value) + '^FS',
+      '^FO20,290^GB536,4,4^FS',
+      '^FO20,310^A0N,28,28^FB536,1,0,C,0^FDScenario Zero^FS',
+      '^XZ'
+    ].join('\n');
+  }
+
+  function regen(){ $('zpl').value = buildZpl(); }
+  function say(msg, cls){ var s=$('status'); s.textContent=msg; s.className=cls||''; }
+
+  function req(path, opts){
+    var tries = base ? [base] : BASES, i = 0;
+    return (function next(){
+      var b = tries[i];
+      return fetch(b + path, opts).then(function(r){
+        if(!r.ok) throw new Error('HTTP ' + r.status);
+        base = b;
+        return r;
+      }).catch(function(e){
+        if(++i < tries.length) return next();
+        throw e;
+      });
+    })();
+  }
+
+  function findPrinter(){
+    say('Buscando impresora…');
+    return req('/default?type=printer').then(function(r){ return r.text(); }).then(function(t){
+      var d; try{ d = JSON.parse(t); }catch(e){ d = null; }
+      if(!d || !d.uid){ throw new Error('Browser Print no tiene una impresora predeterminada. Elíjala en la app.'); }
+      device = d;
+      $('printer-name').textContent = (d.name || d.uid) + ' (' + (d.connection || '?') + ')';
+      say('Impresora lista.', 'ok');
+      return d;
+    });
+  }
+
+  function fail(e){
+    say('Error: ' + (e && e.message ? e.message : e) +
+        '\n¿Está abierto Zebra Browser Print y aceptó el certificado en https://localhost:9101/ssl_support?', 'err');
+  }
+
+  function print(){
+    $('btn-print').disabled = true;
+    (device ? Promise.resolve(device) : findPrinter()).then(function(d){
+      say('Enviando a ' + (d.name || d.uid) + '…');
+      return req('/write', {
+        method:'POST',
+        headers:{'Content-Type':'text/plain;charset=UTF-8'},
+        body: JSON.stringify({device:d, data:$('zpl').value})
+      });
+    }).then(function(){ say('Enviado a la impresora.', 'ok'); })
+      .catch(fail)
+      .then(function(){ $('btn-print').disabled = false; });
+  }
+
+  $('nombre').addEventListener('input', regen);
+  $('empresa').addEventListener('input', regen);
+  $('btn-print').addEventListener('click', print);
+  $('btn-find').addEventListener('click', function(){ findPrinter().catch(fail); });
+  $('btn-copy').addEventListener('click', function(){
+    navigator.clipboard.writeText($('zpl').value).then(
+      function(){ say('ZPL copiado.', 'ok'); },
+      function(){ $('zpl').select(); say('Seleccionado; copie con Ctrl+C.'); });
+  });
+  regen();
+})();
+</script>
+</body>
+</html>
